@@ -1,25 +1,27 @@
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tests for improv_rnn_create_dataset."""
 
 import magenta
 from magenta.models.improv_rnn import improv_rnn_model
 from magenta.models.improv_rnn import improv_rnn_pipeline
+from magenta.music.protobuf import music_pb2
 from magenta.pipelines import lead_sheet_pipelines
 from magenta.pipelines import note_sequence_pipelines
-from magenta.protobuf import music_pb2
 import tensorflow as tf
+from tensorflow.contrib import training as contrib_training
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -34,7 +36,7 @@ class ImprovRNNPipelineTest(tf.test.TestCase):
                 magenta.music.MajorMinorChordOneHotEncoding()),
             magenta.music.OneHotEventSequenceEncoderDecoder(
                 magenta.music.MelodyOneHotEncoding(0, 127))),
-        tf.contrib.training.HParams(),
+        contrib_training.HParams(),
         min_note=0,
         max_note=127,
         transpose_to_key=0)

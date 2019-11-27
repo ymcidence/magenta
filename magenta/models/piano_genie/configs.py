@@ -1,16 +1,17 @@
-# Copyright 2018 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Hyperparameter configurations for Piano Genie."""
 
 from __future__ import absolute_import
@@ -371,6 +372,20 @@ class StpVqSeqFreeAutoDtVs(BasePianoGenieConfig):
     self.dec_aux_feats = ["delta_times_int", "velocities"]
 
 
+class PianoGeniePaper(BasePianoGenieConfig):
+  """Config matching Piano Genie paper."""
+
+  def __init__(self):
+    super(PianoGeniePaper, self).__init__()
+
+    self.enc_aux_feats = ["delta_times_int"]
+    self.dec_autoregressive = True
+    self.dec_aux_feats = ["delta_times_int"]
+    self.stp_emb_iq = True
+    self.stp_emb_iq_contour_margin = 1.
+    self.stp_emb_iq_deviate_exp = 1
+
+
 _named_configs = {
     "stp_free": StpFree(),
     "stp_vq": StpVq(),
@@ -400,6 +415,7 @@ _named_configs = {
     "stp_vq_seq_free_auto_vs": StpVqSeqFreeAutoVs(),
     "stp_vq_seq_vae_auto_dt_vs": StpVqSeqVaeAutoDtVs(),
     "stp_vq_seq_vae_free_dt_vs": StpVqSeqFreeAutoDtVs(),
+    "piano_genie_paper": PianoGeniePaper(),
 }
 
 

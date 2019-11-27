@@ -1,16 +1,17 @@
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tests for audio_io.py."""
 
 from __future__ import absolute_import
@@ -65,6 +66,13 @@ class AudioIoTest(tf.test.TestCase):
     y_from_float = audio_io.wav_data_to_samples(
         wav_io.getvalue(), sample_rate=16000)
     np.testing.assert_array_equal(y, y_from_float)
+
+  def testRepeatSamplesToDuration(self):
+    samples = np.arange(5)
+    repeated = audio_io.repeat_samples_to_duration(
+        samples, sample_rate=5, duration=1.8)
+    expected_samples = [0, 1, 2, 3, 4, 0, 1, 2, 3]
+    self.assertAllEqual(expected_samples, repeated)
 
 
 if __name__ == '__main__':

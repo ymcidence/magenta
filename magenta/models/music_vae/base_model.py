@@ -1,16 +1,17 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Base Music Variational Autoencoder (MusicVAE) model."""
 
 from __future__ import absolute_import
@@ -21,6 +22,8 @@ import abc
 
 import tensorflow as tf
 import tensorflow_probability as tfp
+from tensorflow.contrib import metrics as contrib_metrics
+from tensorflow.contrib import training as contrib_training
 
 ds = tfp.distributions
 
@@ -259,7 +262,7 @@ class MusicVAE(object):
     r_loss, metric_map = self.decoder.reconstruction_loss(
         x_input, x_target, x_length, z, control_sequence)[0:2]
 
-    free_nats = hparams.free_bits * tf.log(2.0)
+    free_nats = hparams.free_bits * tf.math.log(2.0)
     kl_cost = tf.maximum(kl_div - free_nats, 0)
 
     beta = ((1.0 - tf.pow(hparams.beta_rate, tf.to_float(self.global_step)))
@@ -270,7 +273,7 @@ class MusicVAE(object):
         'loss': self.loss,
         'losses/r_loss': r_loss,
         'losses/kl_loss': kl_cost,
-        'losses/kl_bits': kl_div / tf.log(2.0),
+        'losses/kl_bits': kl_div / tf.math.log(2.0),
         'losses/kl_beta': beta,
     }
     return metric_map, scalars_to_summarize
@@ -329,7 +332,7 @@ class MusicVAE(object):
       metric_map[n] = tf.metrics.mean(t)
 
     metrics_to_values, metrics_to_updates = (
-        tf.contrib.metrics.aggregate_metric_map(metric_map))
+        contrib_metrics.aggregate_metric_map(metric_map))
 
     for metric_name, metric_value in metrics_to_values.iteritems():
       tf.summary.scalar(metric_name, metric_value)
@@ -355,7 +358,7 @@ class MusicVAE(object):
 
 
 def get_default_hparams():
-  return tf.contrib.training.HParams(
+  return contrib_training.HParams(
       max_seq_len=32,  # Maximum sequence length. Others will be truncated.
       z_size=32,  # Size of latent vector z.
       free_bits=0.0,  # Bits to exclude from KL loss per dimension.

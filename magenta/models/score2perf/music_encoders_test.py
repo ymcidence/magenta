@@ -1,16 +1,17 @@
-# Copyright 2018 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tests for Score2Perf music encoders."""
 
 from __future__ import absolute_import
@@ -22,7 +23,7 @@ import tempfile
 import magenta
 from magenta.models.score2perf import music_encoders
 from magenta.music import testing_lib
-from magenta.protobuf import music_pb2
+from magenta.music.protobuf import music_pb2
 import tensorflow as tf
 
 
@@ -100,9 +101,35 @@ class MidiPerformanceEncoderTest(tf.test.TestCase):
 
     self.assertEqual(expected_ids, ids)
 
+  def testEncodeNoteSequenceNGrams(self):
+    encoder = music_encoders.MidiPerformanceEncoder(
+        steps_per_second=100, num_velocity_bins=32, min_pitch=21, max_pitch=108,
+        ngrams=[(41, 45), (277, 309, 300), (309, 48), (277, 129, 130)])
+
+    ns = music_pb2.NoteSequence()
+    testing_lib.add_track_to_sequence(
+        ns, 0, [(60, 100, 0.0, 4.0), (64, 100, 0.0, 3.0), (67, 127, 1.0, 2.0)])
+    ids = encoder.encode_note_sequence(ns)
+
+    expected_ids = [
+        302,  # VELOCITY(25)
+        310,  # NOTE-ON(60), NOTE-ON(64)
+        277,  # TIME-SHIFT(100)
+        312,  # VELOCITY(32), NOTE-ON(67)
+        277,  # TIME-SHIFT(100)
+        136,  # NOTE-OFF(67)
+        277,  # TIME-SHIFT(100)
+        133,  # NOTE-OFF(64
+        277,  # TIME-SHIFT(100)
+        129   # NOTE-OFF(60)
+    ]
+
+    self.assertEqual(expected_ids, ids)
+
   def testEncode(self):
     encoder = music_encoders.MidiPerformanceEncoder(
-        steps_per_second=100, num_velocity_bins=32, min_pitch=21, max_pitch=108)
+        steps_per_second=100, num_velocity_bins=32, min_pitch=21, max_pitch=108,
+        ngrams=[(277, 129)])
 
     ns = music_pb2.NoteSequence()
     testing_lib.add_track_to_sequence(ns, 0, [(60, 97, 0.0, 1.0)])
@@ -115,21 +142,20 @@ class MidiPerformanceEncoderTest(tf.test.TestCase):
     expected_ids = [
         302,  # VELOCITY(25)
         41,   # NOTE-ON(60)
-        277,  # TIME-SHIFT(100)
-        129   # NOTE-OFF(60)
+        310   # TIME-SHIFT(100), NOTE-OFF(60)
     ]
 
     self.assertEqual(expected_ids, ids)
 
   def testDecode(self):
     encoder = music_encoders.MidiPerformanceEncoder(
-        steps_per_second=100, num_velocity_bins=32, min_pitch=21, max_pitch=108)
+        steps_per_second=100, num_velocity_bins=32, min_pitch=21, max_pitch=108,
+        ngrams=[(277, 129)])
 
     ids = [
         302,  # VELOCITY(25)
         41,   # NOTE-ON(60)
-        277,  # TIME-SHIFT(100)
-        129   # NOTE-OFF(60)
+        310   # TIME-SHIFT(100), NOTE-OFF(60)
     ]
 
     # Decode method returns MIDI filename, read and convert to NoteSequence.
@@ -155,6 +181,12 @@ class MidiPerformanceEncoderTest(tf.test.TestCase):
     encoder = music_encoders.MidiPerformanceEncoder(
         steps_per_second=100, num_velocity_bins=32, min_pitch=21, max_pitch=108)
     self.assertEqual(310, encoder.vocab_size)
+
+  def testVocabSizeNGrams(self):
+    encoder = music_encoders.MidiPerformanceEncoder(
+        steps_per_second=100, num_velocity_bins=32, min_pitch=21, max_pitch=108,
+        ngrams=[(41, 45), (277, 309, 300), (309, 48), (277, 129, 130)])
+    self.assertEqual(314, encoder.vocab_size)
 
 
 class TextChordsEncoderTest(tf.test.TestCase):

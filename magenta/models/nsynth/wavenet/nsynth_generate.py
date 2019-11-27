@@ -1,16 +1,17 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """A binary for generating samples given a folder of .wav files or encodings."""
 
 import os
@@ -29,7 +30,7 @@ tf.app.flags.DEFINE_boolean("npy_only", False, "If True, use only .npy files.")
 tf.app.flags.DEFINE_string("save_path", "", "Path to output file dir.")
 tf.app.flags.DEFINE_string("checkpoint_path", "model.ckpt-200000",
                            "Path to checkpoint.")
-tf.app.flags.DEFINE_integer("sample_length", 100000000,
+tf.app.flags.DEFINE_integer("sample_length", 64000,
                             "Max output file size in samples.")
 tf.app.flags.DEFINE_integer("batch_size", 1, "Number of samples per a batch.")
 tf.app.flags.DEFINE_string("log", "INFO",

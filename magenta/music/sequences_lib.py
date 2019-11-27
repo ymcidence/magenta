@@ -1,17 +1,22 @@
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Defines sequence of notes objects for creating datasets."""
+
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 import collections
 import copy
@@ -22,7 +27,7 @@ import random
 
 from magenta.music import chord_symbols_lib
 from magenta.music import constants
-from magenta.protobuf import music_pb2
+from magenta.music.protobuf import music_pb2
 import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
 import tensorflow as tf
@@ -123,7 +128,15 @@ def trim_note_sequence(sequence, start_time, end_time):
   return subsequence
 
 
-def _extract_subsequences(sequence, split_times, sustain_control_number=64):
+DEFAULT_SUBSEQUENCE_PRESERVE_CONTROL_NUMBERS = (
+    64,  # sustain
+    66,  # sostenuto
+    67,  # una corda
+)
+
+
+def _extract_subsequences(sequence, split_times,
+                          preserve_control_numbers=None):
   """Extracts multiple subsequences from a NoteSequence.
 
   Args:
@@ -133,7 +146,10 @@ def _extract_subsequences(sequence, split_times, sustain_control_number=64):
       the next subsequence will start at `split_times[1]` and end at
       `split_times[2]`, and so on with the last subsequence ending at
       `split_times[-1]`.
-    sustain_control_number: The MIDI control number for sustain pedal.
+    preserve_control_numbers: List of control change numbers to preserve as
+      pedal events. The most recent event before the beginning of the
+      subsequence will be inserted at the beginning of the subsequence.
+      If None, will use DEFAULT_SUBSEQUENCE_PRESERVE_CONTROL_NUMBERS.
 
   Returns:
     A Python list of new NoteSequence containing the subsequences of `sequence`.
@@ -154,6 +170,9 @@ def _extract_subsequences(sequence, split_times, sustain_control_number=64):
     raise ValueError('Split times must be sorted.')
   if any(time >= sequence.total_time for time in split_times[:-1]):
     raise ValueError('Cannot extract subsequence past end of sequence.')
+
+  if preserve_control_numbers is None:
+    preserve_control_numbers = DEFAULT_SUBSEQUENCE_PRESERVE_CONTROL_NUMBERS
 
   subsequence = music_pb2.NoteSequence()
   subsequence.CopyFrom(sequence)
@@ -262,45 +281,47 @@ def _extract_subsequences(sequence, split_times, sustain_control_number=64):
       containers[subsequence_index].extend([event])
       containers[subsequence_index][-1].time -= split_times[subsequence_index]
 
-  # Extract sustain pedal events (other control changes are deleted). Sustain
-  # pedal state is maintained per-instrument and added to the beginning of each
+  # Extract piano pedal events (other control changes are deleted). Pedal state
+  # is maintained per-instrument and added to the beginning of each
   # subsequence.
-  sustain_events = [
+  pedal_events = [
       cc for cc in sequence.control_changes
-      if cc.control_number == sustain_control_number
+      if cc.control_number in preserve_control_numbers
   ]
-  previous_sustain_events = {}
+  previous_pedal_events = {}
   subsequence_index = -1
-  for sustain_event in sorted(sustain_events, key=lambda event: event.time):
-    if sustain_event.time <= split_times[0]:
-      previous_sustain_events[sustain_event.instrument] = sustain_event
+  for pedal_event in sorted(pedal_events, key=lambda event: event.time):
+    if pedal_event.time <= split_times[0]:
+      previous_pedal_events[
+          (pedal_event.instrument, pedal_event.control_number)] = pedal_event
       continue
     while (subsequence_index < len(split_times) - 1 and
-           sustain_event.time > split_times[subsequence_index + 1]):
+           pedal_event.time > split_times[subsequence_index + 1]):
       subsequence_index += 1
       if subsequence_index == len(split_times) - 1:
         break
-      # Add the current sustain pedal state to the beginning of the subsequence.
-      for previous_sustain_event in previous_sustain_events.values():
+      # Add the current pedal pedal state to the beginning of the subsequence.
+      for previous_pedal_event in previous_pedal_events.values():
         subsequences[subsequence_index].control_changes.extend(
-            [previous_sustain_event])
+            [previous_pedal_event])
         subsequences[subsequence_index].control_changes[-1].time = 0.0
     if subsequence_index == len(split_times) - 1:
       break
-    # Only add the sustain event if it's actually inside the subsequence (and
+    # Only add the pedal event if it's actually inside the subsequence (and
     # not on the boundary with the next one).
-    if sustain_event.time < split_times[subsequence_index + 1]:
-      subsequences[subsequence_index].control_changes.extend([sustain_event])
+    if pedal_event.time < split_times[subsequence_index + 1]:
+      subsequences[subsequence_index].control_changes.extend([pedal_event])
       subsequences[subsequence_index].control_changes[-1].time -= (
           split_times[subsequence_index])
-    previous_sustain_events[sustain_event.instrument] = sustain_event
-  # Add final sustain pedal state to the beginning of all remaining
+    previous_pedal_events[
+        (pedal_event.instrument, pedal_event.control_number)] = pedal_event
+  # Add final pedal pedal state to the beginning of all remaining
   # subsequences.
   while subsequence_index < len(split_times) - 2:
     subsequence_index += 1
-    for _, previous_sustain_event in previous_sustain_events.items():
+    for previous_pedal_event in previous_pedal_events.values():
       subsequences[subsequence_index].control_changes.extend(
-          [previous_sustain_event])
+          [previous_pedal_event])
       subsequences[subsequence_index].control_changes[-1].time = 0.0
 
   # Set subsequence info for all subsequences.
@@ -315,7 +336,7 @@ def _extract_subsequences(sequence, split_times, sustain_control_number=64):
 def extract_subsequence(sequence,
                         start_time,
                         end_time,
-                        sustain_control_number=64):
+                        preserve_control_numbers=None):
   """Extracts a subsequence from a NoteSequence.
 
   Notes starting before `start_time` are not included. Notes ending after
@@ -334,7 +355,11 @@ def extract_subsequence(sequence,
     sequence: The NoteSequence to extract a subsequence from.
     start_time: The float time in seconds to start the subsequence.
     end_time: The float time in seconds to end the subsequence.
-    sustain_control_number: The MIDI control number for sustain pedal.
+    preserve_control_numbers: List of control change numbers to preserve as
+      pedal events. The most recent event before the beginning of the
+      subsequence will be inserted at the beginning of the subsequence.
+      If None, will use DEFAULT_SUBSEQUENCE_PRESERVE_CONTROL_NUMBERS.
+
 
   Returns:
     A new NoteSequence containing the subsequence of `sequence` from the
@@ -347,7 +372,7 @@ def extract_subsequence(sequence,
   return _extract_subsequences(
       sequence,
       split_times=[start_time, end_time],
-      sustain_control_number=sustain_control_number)[0]
+      preserve_control_numbers=preserve_control_numbers)[0]
 
 
 def shift_sequence_times(sequence, shift_seconds):
@@ -496,6 +521,29 @@ def concatenate_sequences(sequences, sequence_durations=None):
   cat_seq.ClearField('subsequence_info')
 
   return remove_redundant_data(cat_seq)
+
+
+def repeat_sequence_to_duration(sequence, duration, sequence_duration=None):
+  """Repeat a sequence until it is a given duration, trimming any extra.
+
+  Args:
+    sequence: the sequence to repeat
+    duration: the desired duration
+    sequence_duration: If provided, will be used instead of sequence.total_time
+
+  Returns:
+    The repeated and possibly trimmed sequence.
+  """
+  if not sequence_duration:
+    sequence_duration = sequence.total_time
+  num_repeats = int(math.ceil(duration / sequence_duration))
+  repeated_ns = concatenate_sequences(
+      [sequence] * num_repeats,
+      sequence_durations=[sequence_duration] * num_repeats)
+
+  trimmed = extract_subsequence(repeated_ns, start_time=0, end_time=duration)
+  trimmed.ClearField('subsequence_info')  # Not relevant in this case.
+  return trimmed
 
 
 def expand_section_groups(sequence):
@@ -1444,6 +1492,8 @@ def apply_sustain_control_changes(note_sequence, sustain_control_number=64):
   is done on a per instrument basis, so notes are only affected by sustain
   events for the same instrument.
 
+  Drum notes will not be modified.
+
   Args:
     note_sequence: The NoteSequence for which to apply sustain. This object will
       not be modified.
@@ -1468,8 +1518,10 @@ def apply_sustain_control_changes(note_sequence, sustain_control_number=64):
 
   # Sort all note on/off and sustain on/off events.
   events = []
-  events.extend([(note.start_time, _NOTE_ON, note) for note in sequence.notes])
-  events.extend([(note.end_time, _NOTE_OFF, note) for note in sequence.notes])
+  events.extend([(note.start_time, _NOTE_ON, note) for note in sequence.notes
+                 if not note.is_drum])
+  events.extend([(note.end_time, _NOTE_OFF, note) for note in sequence.notes
+                 if not note.is_drum])
 
   for cc in sequence.control_changes:
     if cc.control_number != sustain_control_number:
@@ -1483,9 +1535,9 @@ def apply_sustain_control_changes(note_sequence, sustain_control_number=64):
     elif value < 64:
       events.append((cc.time, _SUSTAIN_OFF, cc))
 
-  # Sort, using the event type constants to ensure the order events are
+  # Sort, using the time and event type constants to ensure the order events are
   # processed.
-  events.sort(key=operator.itemgetter(0))
+  events.sort(key=operator.itemgetter(0, 1))
 
   # Lists of active notes, keyed by instrument.
   active_notes = collections.defaultdict(list)
@@ -1735,8 +1787,9 @@ def sequence_to_pianoroll(
     if (min_frame_occupancy_for_label > 0.0 and
         end_frame_occupancy < min_frame_occupancy_for_label):
       end_frame -= 1
-      # can be a problem for very short notes
-      end_frame = max(start_frame, end_frame)
+
+    # Ensure that every note fills at least one frame.
+    end_frame = max(start_frame + 1, end_frame)
 
     return start_frame, end_frame
 
@@ -1789,7 +1842,7 @@ def sequence_to_pianoroll(
                        (note.velocity, max_velocity))
 
     velocities_roll[start_frame:end_frame, note.pitch -
-                    min_pitch] = float(note.velocity) / max_velocity
+                    min_pitch] = note.velocity / max_velocity
     roll_weights[onset_start_frame:onset_end_frame, note.pitch - min_pitch] = (
         onset_upweight)
     roll_weights[onset_end_frame:end_frame, note.pitch - min_pitch] = [
@@ -1814,6 +1867,24 @@ def sequence_to_pianoroll(
       active_velocities=velocities_roll,
       offsets=offsets,
       control_changes=control_changes)
+
+
+def _unscale_velocity(velocity):
+  """Translates a velocity estimate to a MIDI velocity value.
+
+  Note that this scaling is totally arbitrary and was chosen only because it
+  sounded decent when synthesized.
+
+  Args:
+    velocity: Velocity estimate.
+
+  Returns:
+    MIDI velocity value.
+  """
+  unscaled = max(min(velocity, 1.), 0) * 80. + 10.
+  if math.isnan(unscaled):
+    return 0
+  return int(unscaled)
 
 
 def pianoroll_to_note_sequence(frames,
@@ -1872,10 +1943,6 @@ def pianoroll_to_note_sequence(frames,
 
     del pitch_start_step[pitch]
 
-  def unscale_velocity(velocity):
-    """Translates a velocity estimate to a MIDI velocity value."""
-    return int(max(min(velocity, 1.), 0) * 80. + 10.)
-
   def process_active_pitch(pitch, i):
     """Process a pitch being active in a given frame."""
     if pitch not in pitch_start_step:
@@ -1884,7 +1951,7 @@ def pianoroll_to_note_sequence(frames,
         # if we've predicted an onset.
         if onset_predictions[i, pitch]:
           pitch_start_step[pitch] = i
-          onset_velocities[pitch] = unscale_velocity(velocity_values[i, pitch])
+          onset_velocities[pitch] = _unscale_velocity(velocity_values[i, pitch])
         else:
           # Even though the frame is active, the onset predictor doesn't
           # say there should be an onset, so ignore it.
@@ -1899,7 +1966,7 @@ def pianoroll_to_note_sequence(frames,
             not onset_predictions[i - 1, pitch]):
           end_pitch(pitch, i)
           pitch_start_step[pitch] = i
-          onset_velocities[pitch] = unscale_velocity(velocity_values[i, pitch])
+          onset_velocities[pitch] = _unscale_velocity(velocity_values[i, pitch])
 
   for i, frame in enumerate(frames):
     for pitch, active in enumerate(frame):
@@ -1909,6 +1976,66 @@ def pianoroll_to_note_sequence(frames,
         end_pitch(pitch, i)
 
   sequence.total_time = len(frames) * frame_length_seconds
+  if sequence.notes:
+    assert sequence.total_time >= sequence.notes[-1].end_time
+
+  return sequence
+
+
+def pianoroll_onsets_to_note_sequence(onsets,
+                                      frames_per_second,
+                                      note_duration_seconds=0.05,
+                                      velocity=70,
+                                      instrument=0,
+                                      program=0,
+                                      qpm=constants.DEFAULT_QUARTERS_PER_MINUTE,
+                                      min_midi_pitch=constants.MIN_MIDI_PITCH,
+                                      velocity_values=None):
+  """Convert onsets to a NoteSequence.
+
+  This converts an matrix of onsets into a NoteSequence. Every active onset
+  is considered to be a new note with a fixed duration of note_duration_seconds.
+  This is different from pianoroll_to_note_sequence, which considers onsets in
+  consecutive frames to represent a single new note.
+
+
+  Args:
+    onsets: Numpy array of onsets.
+    frames_per_second: Frames per second.
+    note_duration_seconds: Fixed length of every note.
+    velocity: Default note velocity if velocity_values is not provided.
+    instrument: Instrument for the note sequence.
+    program: Program for the note sequence.
+    qpm: QPM for the note sequence.
+    min_midi_pitch: MIDI pitch offset.
+    velocity_values: Numpy array of floats representing velocities.
+
+  Returns:
+    Generated NoteSequence proto.
+  """
+  frame_length_seconds = 1 / frames_per_second
+
+  sequence = music_pb2.NoteSequence()
+  sequence.tempos.add().qpm = qpm
+  sequence.ticks_per_quarter = constants.STANDARD_PPQ
+
+  if velocity_values is None:
+    velocity_values = velocity * np.ones_like(onsets, dtype=np.int32)
+
+  for frame, pitch in zip(*np.nonzero(onsets)):
+    start_time = frame * frame_length_seconds
+    end_time = start_time + note_duration_seconds
+
+    note = sequence.notes.add()
+    note.start_time = start_time
+    note.end_time = end_time
+    note.pitch = pitch + min_midi_pitch
+    note.velocity = _unscale_velocity(velocity_values[frame, pitch])
+    note.instrument = instrument
+    note.program = program
+
+  sequence.total_time = (
+      len(onsets) * frame_length_seconds + note_duration_seconds)
   if sequence.notes:
     assert sequence.total_time >= sequence.notes[-1].end_time
 

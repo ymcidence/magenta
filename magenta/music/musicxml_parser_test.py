@@ -1,16 +1,17 @@
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Test to ensure correct import of MusicXML."""
 
 from __future__ import absolute_import
@@ -23,10 +24,10 @@ import os.path
 import tempfile
 import zipfile
 
-from magenta.common import testing_lib as common_testing_lib
 from magenta.music import musicxml_parser
 from magenta.music import musicxml_reader
-from magenta.protobuf import music_pb2
+from magenta.music import testing_lib
+from magenta.music.protobuf import music_pb2
 import tensorflow as tf
 
 # Shortcut to CHORD_SYMBOL annotation type.
@@ -244,7 +245,7 @@ class MusicXMLParserTest(tf.test.TestCase):
       part_name: name of the part the sequence is expected to contain.
     """
 
-    expected_ns = common_testing_lib.parse_test_proto(
+    expected_ns = testing_lib.parse_test_proto(
         music_pb2.NoteSequence,
         """
         ticks_per_quarter: 220
@@ -362,7 +363,7 @@ class MusicXMLParserTest(tf.test.TestCase):
     """Verify properties of the flute scale."""
     ns = musicxml_reader.musicxml_file_to_sequence_proto(
         self.flute_scale_filename)
-    expected_ns = common_testing_lib.parse_test_proto(
+    expected_ns = testing_lib.parse_test_proto(
         music_pb2.NoteSequence,
         """
         ticks_per_quarter: 220
@@ -413,7 +414,7 @@ class MusicXMLParserTest(tf.test.TestCase):
     """
     ns = musicxml_reader.musicxml_file_to_sequence_proto(
         self.atonal_transposition_filename)
-    expected_ns = common_testing_lib.parse_test_proto(
+    expected_ns = testing_lib.parse_test_proto(
         music_pb2.NoteSequence,
         """
         ticks_per_quarter: 220
@@ -476,7 +477,7 @@ class MusicXMLParserTest(tf.test.TestCase):
     """
     ns = musicxml_reader.musicxml_file_to_sequence_proto(
         self.unmetered_filename)
-    expected_ns = common_testing_lib.parse_test_proto(
+    expected_ns = testing_lib.parse_test_proto(
         music_pb2.NoteSequence,
         """
         ticks_per_quarter: 220
@@ -553,7 +554,7 @@ class MusicXMLParserTest(tf.test.TestCase):
     """
     ns = musicxml_reader.musicxml_file_to_sequence_proto(
         self.st_anne_filename)
-    expected_ns = common_testing_lib.parse_test_proto(
+    expected_ns = testing_lib.parse_test_proto(
         music_pb2.NoteSequence,
         """
         ticks_per_quarter: 220
@@ -824,7 +825,7 @@ class MusicXMLParserTest(tf.test.TestCase):
       ns = musicxml_reader.musicxml_file_to_sequence_proto(
           temp_file.name)
 
-    expected_ns = common_testing_lib.parse_test_proto(
+    expected_ns = testing_lib.parse_test_proto(
         music_pb2.NoteSequence,
         """
         ticks_per_quarter: 220
@@ -865,7 +866,7 @@ class MusicXMLParserTest(tf.test.TestCase):
       ns = musicxml_reader.musicxml_file_to_sequence_proto(
           temp_file.name)
 
-    expected_ns = common_testing_lib.parse_test_proto(
+    expected_ns = testing_lib.parse_test_proto(
         music_pb2.NoteSequence,
         """
         ticks_per_quarter: 220
@@ -904,7 +905,7 @@ class MusicXMLParserTest(tf.test.TestCase):
       ns = musicxml_reader.musicxml_file_to_sequence_proto(
           temp_file.name)
 
-    expected_ns = common_testing_lib.parse_test_proto(
+    expected_ns = testing_lib.parse_test_proto(
         music_pb2.NoteSequence,
         """
         ticks_per_quarter: 220
@@ -990,7 +991,7 @@ class MusicXMLParserTest(tf.test.TestCase):
     """
     ns = musicxml_reader.musicxml_file_to_sequence_proto(
         self.whole_measure_rest_forward_filename)
-    expected_ns = common_testing_lib.parse_test_proto(
+    expected_ns = testing_lib.parse_test_proto(
         music_pb2.NoteSequence,
         """
         ticks_per_quarter: 220
@@ -1065,7 +1066,7 @@ class MusicXMLParserTest(tf.test.TestCase):
     """
     ns = musicxml_reader.musicxml_file_to_sequence_proto(
         self.meter_test_filename)
-    expected_ns = common_testing_lib.parse_test_proto(
+    expected_ns = testing_lib.parse_test_proto(
         music_pb2.NoteSequence,
         """
         ticks_per_quarter: 220

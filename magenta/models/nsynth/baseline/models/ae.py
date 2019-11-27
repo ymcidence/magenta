@@ -1,16 +1,17 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Autoencoder model for training on spectrograms."""
 
 from __future__ import absolute_import
@@ -20,8 +21,10 @@ from __future__ import print_function
 from magenta.models.nsynth import utils
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib import slim as contrib_slim
+from tensorflow.contrib import training as contrib_training
 
-slim = tf.contrib.slim
+slim = contrib_slim
 
 
 def get_hparams(config_name):
@@ -33,7 +36,7 @@ def get_hparams(config_name):
   Returns:
     A HParams object (magenta) with defaults.
   """
-  hparams = tf.contrib.training.HParams(
+  hparams = contrib_training.HParams(
       # Optimization
       batch_size=16,
       learning_rate=1e-4,
@@ -169,7 +172,7 @@ def eval_op(batch, hparams, config_name):
   Returns:
     eval_op: A complete evaluation op with summaries.
   """
-  phase = False if hparams.mag_only or hparams.raw_audio else True
+  phase = not (hparams.mag_only or hparams.raw_audio)
 
   config = utils.get_module("baseline.models.ae_configs.%s" % config_name)
   if hparams.raw_audio:

@@ -1,22 +1,25 @@
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Audio file helper functions."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import math
+import tempfile
 import librosa
 import numpy as np
 import scipy
@@ -95,6 +98,38 @@ def wav_data_to_samples(wav_data, sample_rate):
   return y
 
 
+def wav_data_to_samples_librosa(audio_file, sample_rate):
+  """Loads an in-memory audio file with librosa.
+
+  Use this instead of wav_data_to_samples if the wav is 24-bit, as that's
+  incompatible with wav_data_to_samples internal scipy call.
+
+  Will copy to a local temp file before loading so that librosa can read a file
+  path. Librosa does not currently read in-memory files.
+
+  It will be treated as a .wav file.
+
+  Args:
+    audio_file: Wav file to load.
+    sample_rate: The number of samples per second at which the audio will be
+        returned. Resampling will be performed if necessary.
+
+  Returns:
+    A numpy array of audio samples, single-channel (mono) and sampled at the
+    specified rate, in float32 format.
+
+  Raises:
+    AudioIOReadException: If librosa is unable to load the audio data.
+  """
+  with tempfile.NamedTemporaryFile(suffix='.wav') as wav_input_file:
+    wav_input_file.write(audio_file)
+    # Before copying the file, flush any contents
+    wav_input_file.flush()
+    # And back the file position to top (not need for Copy but for certainty)
+    wav_input_file.seek(0)
+    return load_audio(wav_input_file.name, sample_rate)
+
+
 def samples_to_wav_data(samples, sample_rate):
   """Converts floating point samples to wav data."""
   wav_io = six.BytesIO()
@@ -122,6 +157,26 @@ def crop_samples(samples, sample_rate, crop_beginning_seconds,
   total_samples = int(total_length_seconds * sample_rate)
   cropped_samples = samples[samples_to_crop:(samples_to_crop + total_samples)]
   return cropped_samples
+
+
+def repeat_samples_to_duration(samples, sample_rate, duration):
+  """Repeat a sequence of samples until it is a given duration, trimming extra.
+
+  Args:
+    samples: The sequence to repeat
+    sample_rate: The sample rate at which to interpret the samples.
+    duration: The desired duration
+
+  Returns:
+    The repeated and possibly trimmed sequence.
+  """
+  sequence_duration = len(samples) / sample_rate
+  num_repeats = int(math.ceil(duration / sequence_duration))
+  repeated_samples = np.concatenate([samples] * num_repeats)
+  trimmed = crop_samples(
+      repeated_samples, sample_rate,
+      crop_beginning_seconds=0, total_length_seconds=duration)
+  return trimmed
 
 
 def crop_wav_data(wav_data, sample_rate, crop_beginning_seconds,

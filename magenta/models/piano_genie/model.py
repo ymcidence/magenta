@@ -1,16 +1,17 @@
-# Copyright 2018 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Constructs a Piano Genie model."""
 
 from __future__ import absolute_import
@@ -18,8 +19,8 @@ from __future__ import division
 from __future__ import print_function
 
 from magenta.models.piano_genie import util
-import sonnet as snt
 import tensorflow as tf
+from tensorflow.contrib import rnn as contrib_rnn
 
 
 def simple_lstm_encoder(features,
@@ -36,11 +37,11 @@ def simple_lstm_encoder(features,
     x = tf.layers.dense(x, rnn_nunits)
 
   if rnn_celltype == "lstm":
-    celltype = tf.contrib.rnn.LSTMBlockCell
+    celltype = contrib_rnn.LSTMBlockCell
   else:
     raise NotImplementedError()
 
-  cell = tf.contrib.rnn.MultiRNNCell(
+  cell = contrib_rnn.MultiRNNCell(
       [celltype(rnn_nunits) for _ in range(rnn_nlayers)])
 
   with tf.variable_scope("rnn"):
@@ -78,11 +79,11 @@ def simple_lstm_decoder(features,
     x = tf.layers.dense(x, rnn_nunits)
 
   if rnn_celltype == "lstm":
-    celltype = tf.contrib.rnn.LSTMBlockCell
+    celltype = contrib_rnn.LSTMBlockCell
   else:
     raise NotImplementedError()
 
-  cell = tf.contrib.rnn.MultiRNNCell(
+  cell = contrib_rnn.MultiRNNCell(
       [celltype(rnn_nunits) for _ in range(rnn_nlayers)])
 
   with tf.variable_scope("rnn"):
@@ -194,6 +195,7 @@ def build_genie_model(feat_dict,
 
   # Quantized step embeddings with VQ-VAE
   if cfg.stp_emb_vq:
+    import sonnet as snt  # pylint:disable=g-import-not-at-top
     with tf.variable_scope("stp_emb_vq"):
       with tf.variable_scope("pre_vq"):
         # pre_vq_encoding is tf.float32 of [batch_size, seq_len, embedding_dim]

@@ -1,16 +1,17 @@
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Classes for converting between drum tracks and models inputs/outputs."""
 
 from magenta.music import encoder_decoder
@@ -20,32 +21,32 @@ from magenta.music import encoder_decoder
 # attempts to map all GM1 and GM2 drums onto a much smaller standard drum kit
 # based on drum sound and function.
 DEFAULT_DRUM_TYPE_PITCHES = [
-    # bass drum
+    # kick drum
     [36, 35],
 
     # snare drum
     [38, 27, 28, 31, 32, 33, 34, 37, 39, 40, 56, 65, 66, 75, 85],
 
     # closed hi-hat
-    [42, 44, 54, 68, 69, 70, 71, 73, 78, 80],
+    [42, 44, 54, 68, 69, 70, 71, 73, 78, 80, 22],
 
     # open hi-hat
-    [46, 67, 72, 74, 79, 81],
+    [46, 67, 72, 74, 79, 81, 26],
 
     # low tom
-    [45, 29, 41, 61, 64, 84],
+    [45, 29, 41, 43, 61, 64, 84],
 
     # mid tom
     [48, 47, 60, 63, 77, 86, 87],
 
     # high tom
-    [50, 30, 43, 62, 76, 83],
+    [50, 30, 62, 76, 83],
 
     # crash cymbal
-    [49, 55, 57, 58],
+    [49, 52, 55, 57, 58],
 
     # ride cymbal
-    [51, 52, 53, 59, 82]
+    [51, 53, 59, 82]
 ]
 
 

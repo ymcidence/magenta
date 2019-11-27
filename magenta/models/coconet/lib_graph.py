@@ -1,3 +1,17 @@
+# Copyright 2019 The Magenta Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Defines the graph for a convolutional net designed for music autofill."""
 from __future__ import absolute_import
 from __future__ import division
@@ -9,6 +23,7 @@ import os
 from magenta.models.coconet import lib_hparams
 from magenta.models.coconet import lib_tfutil
 import tensorflow as tf
+from tensorflow.contrib import layers as contrib_layers
 
 
 class CoconetGraph(object):
@@ -266,7 +281,7 @@ class CoconetGraph(object):
       tf.logging.info('num_splits %d', num_splits)
       if num_splits > 1:
         num_outputs = None
-      conv = tf.contrib.layers.separable_conv2d(
+      conv = contrib_layers.separable_conv2d(
           x,
           num_outputs,
           filter_shape[:2],

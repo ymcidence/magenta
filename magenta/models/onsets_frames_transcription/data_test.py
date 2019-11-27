@@ -1,10 +1,10 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,33 +22,38 @@ import copy
 import tempfile
 import time
 
+from magenta.models.onsets_frames_transcription import configs
 from magenta.models.onsets_frames_transcription import constants
 from magenta.models.onsets_frames_transcription import data
+
 from magenta.music import audio_io
 from magenta.music import sequences_lib
 from magenta.music import testing_lib
-from magenta.protobuf import music_pb2
+from magenta.music.protobuf import music_pb2
+
 import numpy as np
 import tensorflow as tf
 
 
 class DataTest(tf.test.TestCase):
 
-  def _FillExample(self, sequence, audio, filename):
+  def _FillExample(self, sequence, wav_data, filename):
     velocity_range = music_pb2.VelocityRange(min=0, max=127)
     feature_dict = {
         'id':
-            tf.train.Feature(bytes_list=tf.train.BytesList(
-                value=[filename.encode('utf-8')])),
+            tf.train.Feature(
+                bytes_list=tf.train.BytesList(value=[filename.encode('utf-8')])
+            ),
         'sequence':
-            tf.train.Feature(bytes_list=tf.train.BytesList(
-                value=[sequence.SerializeToString()])),
+            tf.train.Feature(
+                bytes_list=tf.train.BytesList(
+                    value=[sequence.SerializeToString()])),
         'audio':
-            tf.train.Feature(bytes_list=tf.train.BytesList(
-                value=[audio])),
+            tf.train.Feature(bytes_list=tf.train.BytesList(value=[wav_data])),
         'velocity_range':
-            tf.train.Feature(bytes_list=tf.train.BytesList(
-                value=[velocity_range.SerializeToString()])),
+            tf.train.Feature(
+                bytes_list=tf.train.BytesList(
+                    value=[velocity_range.SerializeToString()])),
     }
     return tf.train.Example(features=tf.train.Features(feature=feature_dict))
 
@@ -79,17 +84,17 @@ class DataTest(tf.test.TestCase):
     else:
       labels = labels[0:truncated_length]
 
-    inputs = [[spec, labels, truncated_length, filename]]
+    inputs = [(spec, labels, truncated_length, filename)]
 
     return inputs
 
   def _ExampleToInputs(self,
                        ex,
                        truncated_length=0):
-    hparams = copy.deepcopy(constants.DEFAULT_HPARAMS)
+    hparams = copy.deepcopy(configs.DEFAULT_HPARAMS)
 
     filename = ex.features.feature['id'].bytes_list.value[0]
-    sequence = data.preprocess_sequence(
+    sequence = music_pb2.NoteSequence.FromString(
         ex.features.feature['sequence'].bytes_list.value[0])
     wav_data = ex.features.feature['audio'].bytes_list.value[0]
 
@@ -110,28 +115,38 @@ class DataTest(tf.test.TestCase):
                               truncated_length)
 
   def _ValidateProvideBatch(self,
-                            examples_path,
+                            examples,
                             truncated_length,
                             batch_size,
-                            expected_inputs):
+                            expected_inputs,
+                            feed_dict=None):
     """Tests for correctness of batches."""
-    hparams = copy.deepcopy(constants.DEFAULT_HPARAMS)
+    hparams = copy.deepcopy(configs.DEFAULT_HPARAMS)
+    hparams.batch_size = batch_size
+    hparams.truncated_length_secs = (
+        truncated_length / data.hparams_frames_per_second(hparams))
 
     with self.test_session() as sess:
-      batch, _ = data.provide_batch(
-          batch_size=batch_size,
-          examples=examples_path,
-          hparams=hparams,
-          truncated_length=truncated_length,
-          is_training=False)
-      sess.run(tf.local_variables_initializer())
-      input_tensors = [
-          batch.spec, batch.labels, batch.lengths, batch.filenames]
-      self.assertEqual(len(expected_inputs) // batch_size, batch.num_batches)
-      for i in range(0, batch.num_batches * batch_size, batch_size):
+      dataset = data.provide_batch(
+          examples=examples,
+          preprocess_examples=True,
+          params=hparams,
+          is_training=False,
+          shuffle_examples=False,
+          skip_n_initial_records=0)
+      iterator = dataset.make_initializable_iterator()
+      next_record = iterator.get_next()
+      sess.run([
+          tf.initializers.local_variables(),
+          tf.initializers.global_variables(),
+          iterator.initializer
+      ], feed_dict=feed_dict)
+      for i in range(0, len(expected_inputs), batch_size):
         # Wait to ensure example is pre-processed.
         time.sleep(0.1)
-        inputs = sess.run(input_tensors)
+        features, labels = sess.run(next_record)
+        inputs = [
+            features.spec, labels.labels, features.length, features.sequence_id]
         max_length = np.max(inputs[2])
         for j in range(batch_size):
           # Add batch padding if needed.
@@ -140,8 +155,7 @@ class DataTest(tf.test.TestCase):
             expected_inputs[i + j] = list(expected_inputs[i + j])
             pad_amt = max_length - input_length
             expected_inputs[i + j][0] = np.pad(
-                expected_inputs[i + j][0],
-                [(0, pad_amt), (0, 0)], 'constant')
+                expected_inputs[i + j][0], [(0, pad_amt), (0, 0)], 'constant')
             expected_inputs[i + j][1] = np.pad(
                 expected_inputs[i + j][1],
                 [(0, pad_amt), (0, 0)], 'constant')
@@ -149,28 +163,27 @@ class DataTest(tf.test.TestCase):
             self.assertAllEqual(np.squeeze(exp_input), np.squeeze(input_[j]))
 
       with self.assertRaisesOpError('End of sequence'):
-        _ = sess.run(input_tensors)
+        _ = sess.run(next_record)
 
   def _SyntheticSequence(self, duration, note):
     seq = music_pb2.NoteSequence(total_time=duration)
-    testing_lib.add_track_to_sequence(seq, 0, [(note, 100, 0, duration)])
+    testing_lib.add_track_to_sequence(
+        seq, 0, [(note, 100, 0, duration)])
     return seq
 
-  def _ValidateProvideBatchTFRecord(self,
-                                    truncated_length,
-                                    batch_size,
-                                    lengths,
-                                    expected_num_inputs):
-    hparams = copy.deepcopy(constants.DEFAULT_HPARAMS)
+  def _CreateExamplesAndExpectedInputs(self,
+                                       truncated_length,
+                                       lengths,
+                                       expected_num_inputs):
+    hparams = copy.deepcopy(configs.DEFAULT_HPARAMS)
     examples = []
     expected_inputs = []
 
     for i, length in enumerate(lengths):
       wav_samples = np.zeros(
           (np.int((length / data.hparams_frames_per_second(hparams)) *
-                  constants.DEFAULT_SAMPLE_RATE), 1), np.float32)
-      wav_data = audio_io.samples_to_wav_data(wav_samples,
-                                              constants.DEFAULT_SAMPLE_RATE)
+                  hparams.sample_rate), 1), np.float32)
+      wav_data = audio_io.samples_to_wav_data(wav_samples, hparams.sample_rate)
 
       num_frames = data.wav_to_num_frames(
           wav_data, frames_per_second=data.hparams_frames_per_second(hparams))
@@ -184,31 +197,113 @@ class DataTest(tf.test.TestCase):
           examples[-1],
           truncated_length)
     self.assertEqual(expected_num_inputs, len(expected_inputs))
+    return examples, expected_inputs
 
-    with tempfile.NamedTemporaryFile() as temp_rio:
-      with tf.python_io.TFRecordWriter(temp_rio.name) as writer:
+  def _ValidateProvideBatchTFRecord(self,
+                                    truncated_length,
+                                    batch_size,
+                                    lengths,
+                                    expected_num_inputs):
+    examples, expected_inputs = self._CreateExamplesAndExpectedInputs(
+        truncated_length, lengths, expected_num_inputs)
+
+    with tempfile.NamedTemporaryFile() as temp_tfr:
+      with tf.python_io.TFRecordWriter(temp_tfr.name) as writer:
         for ex in examples:
           writer.write(ex.SerializeToString())
 
       self._ValidateProvideBatch(
-          temp_rio.name,
+          temp_tfr.name,
           truncated_length,
           batch_size,
           expected_inputs)
 
-  def testProvideBatch_TFRecord_FullSeqs(self):
+  def _ValidateProvideBatchMemory(self,
+                                  truncated_length,
+                                  batch_size,
+                                  lengths,
+                                  expected_num_inputs):
+    examples, expected_inputs = self._CreateExamplesAndExpectedInputs(
+        truncated_length, lengths, expected_num_inputs)
+
+    self._ValidateProvideBatch(
+        [e.SerializeToString() for e in examples],
+        truncated_length,
+        batch_size,
+        expected_inputs)
+
+  def _ValidateProvideBatchPlaceholder(self,
+                                       truncated_length,
+                                       batch_size,
+                                       lengths,
+                                       expected_num_inputs):
+    examples, expected_inputs = self._CreateExamplesAndExpectedInputs(
+        truncated_length, lengths, expected_num_inputs)
+    examples_ph = tf.placeholder(tf.string, [None])
+    feed_dict = {examples_ph: [e.SerializeToString() for e in examples]}
+
+    self._ValidateProvideBatch(
+        examples_ph,
+        truncated_length,
+        batch_size,
+        expected_inputs,
+        feed_dict=feed_dict)
+
+  def _ValidateProvideBatchBoth(self,
+                                truncated_length,
+                                batch_size,
+                                lengths,
+                                expected_num_inputs):
     self._ValidateProvideBatchTFRecord(
+        truncated_length=truncated_length,
+        batch_size=batch_size,
+        lengths=lengths,
+        expected_num_inputs=expected_num_inputs)
+    self._ValidateProvideBatchMemory(
+        truncated_length=truncated_length,
+        batch_size=batch_size,
+        lengths=lengths,
+        expected_num_inputs=expected_num_inputs)
+    self._ValidateProvideBatchPlaceholder(
+        truncated_length=truncated_length,
+        batch_size=batch_size,
+        lengths=lengths,
+        expected_num_inputs=expected_num_inputs)
+
+  def testProvideBatchFullSeqs(self):
+    self._ValidateProvideBatchBoth(
         truncated_length=0,
         batch_size=2,
         lengths=[10, 50, 100, 10, 50, 80],
         expected_num_inputs=6)
 
-  def testProvideBatch_TFRecord_Truncated(self):
-    self._ValidateProvideBatchTFRecord(
+  def testProvideBatchTruncated(self):
+    self._ValidateProvideBatchBoth(
         truncated_length=15,
         batch_size=2,
         lengths=[10, 50, 100, 10, 50, 80],
         expected_num_inputs=6)
+
+  def testGeneratedShardedFilenamesCommaWithShard(self):
+    filenames = data.generate_sharded_filenames('/foo/bar@3,/baz/qux@2')
+    self.assertEqual(
+        [
+            '/foo/bar-00000-of-00003',
+            '/foo/bar-00001-of-00003',
+            '/foo/bar-00002-of-00003',
+            '/baz/qux-00000-of-00002',
+            '/baz/qux-00001-of-00002',
+        ],
+        filenames)
+
+  def testGeneratedShardedFilenamesCommaWithoutShard(self):
+    filenames = data.generate_sharded_filenames('/foo/bar,/baz/qux')
+    self.assertEqual(
+        [
+            '/foo/bar',
+            '/baz/qux',
+        ],
+        filenames)
 
 
 if __name__ == '__main__':

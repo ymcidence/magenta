@@ -1,16 +1,17 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Generates stylized images with different strengths of a stylization.
 
 For each pair of the content and style images this script computes stylized
@@ -31,8 +32,9 @@ from magenta.models.arbitrary_image_stylization import arbitrary_image_stylizati
 from magenta.models.image_stylization import image_utils
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib import slim as contrib_slim
 
-slim = tf.contrib.slim
+slim = contrib_slim
 
 flags = tf.flags
 flags.DEFINE_string('checkpoint', None, 'Path to the model checkpoint.')
@@ -42,10 +44,10 @@ flags.DEFINE_string('content_images_paths', None, 'Paths to the content images'
                     'for evaluation.')
 flags.DEFINE_string('output_dir', None, 'Output directory.')
 flags.DEFINE_integer('image_size', 256, 'Image size.')
-flags.DEFINE_boolean('content_square_crop', False, 'Wheather to center crop'
+flags.DEFINE_boolean('content_square_crop', False, 'Whether to center crop'
                      'the content image to be a square or not.')
 flags.DEFINE_integer('style_image_size', 256, 'Style image size.')
-flags.DEFINE_boolean('style_square_crop', False, 'Wheather to center crop'
+flags.DEFINE_boolean('style_square_crop', False, 'Whether to center crop'
                      'the style image to be a square or not.')
 flags.DEFINE_integer('maximum_styles_to_evaluate', 1024, 'Maximum number of'
                      'styles to evaluate.')

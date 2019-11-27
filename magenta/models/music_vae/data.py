@@ -1,16 +1,17 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """MusicVAE data library."""
 
 from __future__ import absolute_import
@@ -27,9 +28,13 @@ import magenta.music as mm
 from magenta.music import chords_lib
 from magenta.music import drums_encoder_decoder
 from magenta.music import sequences_lib
-from magenta.protobuf import music_pb2
+from magenta.music.protobuf import music_pb2
+from magenta.pipelines import drum_pipelines
+from magenta.pipelines import melody_pipelines
 import numpy as np
 import tensorflow as tf
+import tensorflow_datasets as tfds
+from tensorflow.contrib import data as contrib_data
 
 PIANO_MIN_MIDI_PITCH = 21
 PIANO_MAX_MIDI_PITCH = 108
@@ -48,17 +53,42 @@ ELECTRIC_BASS_PROGRAM = 33
 REDUCED_DRUM_PITCH_CLASSES = drums_encoder_decoder.DEFAULT_DRUM_TYPE_PITCHES
 # 61 classes: full General MIDI set
 FULL_DRUM_PITCH_CLASSES = [
-    [p] for c in drums_encoder_decoder.DEFAULT_DRUM_TYPE_PITCHES for p in c]
+    [p] for p in  # pylint:disable=g-complex-comprehension
+    [36, 35, 38, 27, 28, 31, 32, 33, 34, 37, 39, 40, 56, 65, 66, 75, 85, 42, 44,
+     54, 68, 69, 70, 71, 73, 78, 80, 46, 67, 72, 74, 79, 81, 45, 29, 41, 61, 64,
+     84, 48, 47, 60, 63, 77, 86, 87, 50, 30, 43, 62, 76, 83, 49, 55, 57, 58, 51,
+     52, 53, 59, 82]
+]
+ROLAND_DRUM_PITCH_CLASSES = [
+    # kick drum
+    [36],
+    # snare drum
+    [38, 37, 40],
+    # closed hi-hat
+    [42, 22, 44],
+    # open hi-hat
+    [46, 26],
+    # low tom
+    [43, 58],
+    # mid tom
+    [47, 45],
+    # high tom
+    [50, 48],
+    # crash cymbal
+    [49, 52, 55, 57],
+    # ride cymbal
+    [51, 53, 59]
+]
 
 OUTPUT_VELOCITY = 80
 
 CHORD_SYMBOL = music_pb2.NoteSequence.TextAnnotation.CHORD_SYMBOL
 
 
-def _maybe_pad_seqs(seqs, dtype):
+def _maybe_pad_seqs(seqs, dtype, depth):
   """Pads sequences to match the longest and returns as a numpy array."""
   if not len(seqs):  # pylint:disable=g-explicit-length-test,len-as-condition
-    return np.zeros((0, 0, 0), dtype)
+    return np.zeros((0, 0, depth), dtype)
   lengths = [len(s) for s in seqs]
   if len(set(lengths)) == 1:
     return np.array(seqs, dtype)
@@ -124,15 +154,15 @@ class NoteSequenceAugmenter(object):
   def tf_augment(self, note_sequence_scalar):
     """TF op that augments the NoteSequence."""
     def _augment_str(note_sequence_str):
-      note_sequence = music_pb2.NoteSequence.FromString(note_sequence_str)
+      note_sequence = music_pb2.NoteSequence.FromString(
+          note_sequence_str.numpy())
       augmented_ns = self.augment(note_sequence)
       return [augmented_ns.SerializeToString()]
 
-    augmented_note_sequence_scalar = tf.py_func(
+    augmented_note_sequence_scalar = tf.py_function(
         _augment_str,
-        [note_sequence_scalar],
-        tf.string,
-        stateful=False,
+        inp=[note_sequence_scalar],
+        Tout=tf.string,
         name='augment')
     augmented_note_sequence_scalar.set_shape(())
     return augmented_note_sequence_scalar
@@ -203,20 +233,25 @@ class BaseConverter(object):
     self._end_token = end_token
     self._max_tensors_per_input = max_tensors_per_item
     self._str_to_item_fn = str_to_item_fn
-    self._is_training = False
+    self._mode = None
     self._length_shape = length_shape
+
+  def set_mode(self, mode):
+    if mode not in ['train', 'eval', 'infer']:
+      raise ValueError('Invalid mode: %s' % mode)
+    self._mode = mode
 
   @property
   def is_training(self):
-    return self._is_training
+    return self._mode == 'train'
+
+  @property
+  def is_inferring(self):
+    return self._mode == 'infer'
 
   @property
   def str_to_item_fn(self):
     return self._str_to_item_fn
-
-  @is_training.setter
-  def is_training(self, value):
-    self._is_training = value
 
   @property
   def max_tensors_per_item(self):
@@ -324,6 +359,8 @@ class BaseConverter(object):
     else:
       return self._to_items(samples, controls)
 
+  # TODO(b/144556490): Remove `do_not_convert` when fixed.
+  @tf.autograph.experimental.do_not_convert
   def tf_to_tensors(self, item_scalar):
     """TensorFlow op that converts item into output tensors.
 
@@ -345,17 +382,20 @@ class BaseConverter(object):
         unpadded lengths of the tensor sequences resulting from the input.
     """
     def _convert_and_pad(item_str):
-      item = self.str_to_item_fn(item_str)  # pylint:disable=not-callable
+      item = self.str_to_item_fn(item_str.numpy())  # pylint:disable=not-callable
       tensors = self.to_tensors(item)
-      inputs = _maybe_pad_seqs(tensors.inputs, self.input_dtype)
-      outputs = _maybe_pad_seqs(tensors.outputs, self.output_dtype)
-      controls = _maybe_pad_seqs(tensors.controls, self.control_dtype)
+      inputs = _maybe_pad_seqs(
+          tensors.inputs, self.input_dtype, self.input_depth)
+      outputs = _maybe_pad_seqs(
+          tensors.outputs, self.output_dtype, self.output_depth)
+      controls = _maybe_pad_seqs(
+          tensors.controls, self.control_dtype, self.control_depth)
       return inputs, outputs, controls, np.array(tensors.lengths, np.int32)
-    inputs, outputs, controls, lengths = tf.py_func(
+    inputs, outputs, controls, lengths = tf.py_function(
         _convert_and_pad,
-        [item_scalar],
-        [self.input_dtype, self.output_dtype, self.control_dtype, tf.int32],
-        stateful=False,
+        inp=[item_scalar],
+        Tout=[
+            self.input_dtype, self.output_dtype, self.control_dtype, tf.int32],
         name='convert_and_pad')
     inputs.set_shape([None, None, self.input_depth])
     outputs.set_shape([None, None, self.output_depth])
@@ -681,7 +721,7 @@ class OneHotMelodyConverter(LegacyEventListOneHotConverter):
       return mm.Melody(
           steps_per_bar=steps_per_bar, steps_per_quarter=steps_per_quarter)
     melody_extractor_fn = functools.partial(
-        mm.extract_melodies,
+        melody_pipelines.extract_melodies,
         min_bars=1,
         gap_bars=gap_bars or float('inf'),
         max_steps_truncate=max_steps_truncate,
@@ -765,7 +805,7 @@ class DrumsConverter(BaseNoteSequenceConverter):
     self._roll_output = roll_output
 
     self._drums_extractor_fn = functools.partial(
-        mm.extract_drum_tracks,
+        drum_pipelines.extract_drum_tracks,
         min_bars=1,
         gap_bars=gap_bars or float('inf'),
         max_steps_truncate=self._steps_per_bar * max_bars if max_bars else None,
@@ -1121,20 +1161,30 @@ class TrioConverter(BaseNoteSequenceConverter):
     return output_sequences
 
 
-def count_examples(examples_path, data_converter,
+def count_examples(examples_path, tfds_name, data_converter,
                    file_reader=tf.python_io.tf_record_iterator):
   """Counts the number of examples produced by the converter from files."""
-  filenames = tf.gfile.Glob(examples_path)
+  def _file_generator():
+    filenames = tf.gfile.Glob(examples_path)
+    for f in filenames:
+      tf.logging.info('Counting examples in %s.', f)
+      reader = file_reader(f)
+      for item_str in reader:
+        yield data_converter.str_to_item_fn(item_str)
+
+  def _tfds_generator():
+    ds = tfds.as_numpy(
+        tfds.load(tfds_name, split=tfds.Split.VALIDATION, try_gcs=True))
+    # TODO(adarob): Generalize to other data types if needed.
+    for ex in ds:
+      yield mm.midi_to_note_sequence(ex['midi'])
 
   num_examples = 0
 
-  for f in filenames:
-    tf.logging.info('Counting examples in %s.', f)
-    reader = file_reader(f)
-    for item_str in reader:
-      item = data_converter.str_to_item_fn(item_str)
-      tensors = data_converter.to_tensors(item)
-      num_examples += len(tensors.inputs)
+  generator = _tfds_generator if tfds_name else _file_generator
+  for item in generator():
+    tensors = data_converter.to_tensors(item)
+    num_examples += len(tensors.inputs)
   tf.logging.info('Total examples: %d', num_examples)
   return num_examples
 
@@ -1143,17 +1193,18 @@ def get_dataset(
     config,
     num_threads=1,
     tf_file_reader=tf.data.TFRecordDataset,
-    prefetch_size=4,
-    is_training=False):
+    is_training=False,
+    cache_dataset=True):
   """Get input tensors from dataset for training or evaluation.
 
   Args:
     config: A Config object containing dataset information.
     num_threads: The number of threads to use for pre-processing.
     tf_file_reader: The tf.data.Dataset class to use for reading files.
-    prefetch_size: The number of batches to prefetch. Disabled when 0.
     is_training: Whether or not the dataset is used in training. Determines
       whether dataset is shuffled and repeated, etc.
+    cache_dataset: Whether to cache the dataset in memory for improved
+      performance.
 
   Returns:
     A tf.data.Dataset containing input, output, control, and length tensors.
@@ -1167,24 +1218,37 @@ def get_dataset(
   note_sequence_augmenter = (
       config.note_sequence_augmenter if is_training else None)
   data_converter = config.data_converter
-  data_converter.is_training = is_training
+  data_converter.set_mode('train' if is_training else 'eval')
 
-  tf.logging.info('Reading examples from: %s', examples_path)
-
-  num_files = len(tf.gfile.Glob(examples_path))
-  if not num_files:
+  if examples_path:
+    tf.logging.info('Reading examples from file: %s', examples_path)
+    num_files = len(tf.gfile.Glob(examples_path))
+    if not num_files:
+      raise ValueError(
+          'No files were found matching examples path: %s' %  examples_path)
+    files = tf.data.Dataset.list_files(examples_path)
+    dataset = files.apply(
+        contrib_data.parallel_interleave(
+            tf_file_reader, cycle_length=num_threads, sloppy=is_training))
+  elif config.tfds_name:
+    tf.logging.info('Reading examples from TFDS: %s', config.tfds_name)
+    dataset = tfds.load(
+        config.tfds_name,
+        split=tfds.Split.TRAIN if is_training else tfds.Split.VALIDATION,
+        shuffle_files=is_training,
+        try_gcs=True)
+    def _tf_midi_to_note_sequence(ex):
+      return tf.py_function(
+          lambda x: [mm.midi_to_note_sequence(x.numpy()).SerializeToString()],
+          inp=[ex['midi']],
+          Tout=tf.string,
+          name='midi_to_note_sequence')
+    dataset = dataset.map(
+        _tf_midi_to_note_sequence,
+        num_parallel_calls=tf.data.experimental.AUTOTUNE)
+  else:
     raise ValueError(
-        'No files were found matching examples path: %s' %  examples_path)
-  files = tf.data.Dataset.list_files(examples_path)
-  if is_training:
-    files = files.apply(
-        tf.contrib.data.shuffle_and_repeat(buffer_size=num_files))
-
-  reader = files.apply(
-      tf.contrib.data.parallel_interleave(
-          tf_file_reader,
-          cycle_length=num_threads,
-          sloppy=True))
+        'One of `config.examples_path` or `config.tfds_name` must be defined.')
 
   def _remove_pad_fn(padded_seq_1, padded_seq_2, padded_seq_3, length):
     if length.shape.ndims == 0:
@@ -1194,21 +1258,23 @@ def get_dataset(
       # Don't remove padding for hierarchical examples.
       return padded_seq_1, padded_seq_2, padded_seq_3, length
 
-  dataset = reader
   if note_sequence_augmenter is not None:
     dataset = dataset.map(note_sequence_augmenter.tf_augment)
   dataset = (dataset
              .map(data_converter.tf_to_tensors,
-                  num_parallel_calls=num_threads)
+                  num_parallel_calls=tf.data.experimental.AUTOTUNE)
              .flat_map(lambda *t: tf.data.Dataset.from_tensor_slices(t))
-             .map(_remove_pad_fn))
+             .map(_remove_pad_fn,
+                  num_parallel_calls=tf.data.experimental.AUTOTUNE))
+  if cache_dataset:
+    dataset = dataset.cache()
   if is_training:
-    dataset = dataset.shuffle(buffer_size=batch_size * 4)
+    dataset = dataset.shuffle(buffer_size=10 * batch_size).repeat()
 
-  dataset = dataset.padded_batch(batch_size, dataset.output_shapes)
-
-  if prefetch_size:
-    dataset = dataset.prefetch(prefetch_size)
+  dataset = dataset.padded_batch(
+      batch_size,
+      dataset.output_shapes,
+      drop_remainder=True).prefetch(tf.data.experimental.AUTOTUNE)
 
   return dataset
 
@@ -1238,7 +1304,9 @@ class GrooveConverter(BaseNoteSequenceConverter):
     quarters_per_bar: The number of quarter notes per bar.
     pitch_classes: A collection of collections, with each sub-collection
       containing the set of pitches representing a single class to group by. By
-      default, groups valid drum pitches into 9 different classes.
+      default, groups Roland V-Drum pitches into 9 different classes.
+    inference_pitch_classes: Pitch classes to use during inference. By default,
+      uses same as `pitch_classes`.
     humanize: If True, flatten all input velocities and microtiming. The model
       then learns to map from a flattened input to the original sequence.
     tapify: If True, squash all drums at each timestep to the open hi-hat
@@ -1257,14 +1325,21 @@ class GrooveConverter(BaseNoteSequenceConverter):
     hits_as_controls: If True, pass in hits with the conditioning controls
       to force model to learn velocities and offsets.
     fixed_velocities: If True, flatten all input velocities.
+    max_note_dropout_probability: If a value is provided, randomly drop out
+      notes from the input sequences but not the output sequences.  On a per
+      sequence basis, a dropout probability will be chosen uniformly between 0
+      and this value such that some sequences will have fewer notes dropped
+      out and some will have have more.  On a per note basis, lower velocity
+      notes will be dropped out more often.
   """
 
   def __init__(self, split_bars=None, steps_per_quarter=4, quarters_per_bar=4,
                max_tensors_per_notesequence=8, pitch_classes=None,
-               humanize=False, tapify=False, add_instruments=None,
-               num_velocity_bins=None, num_offset_bins=None,
-               split_instruments=False, hop_size=None,
-               hits_as_controls=False, fixed_velocities=False):
+               inference_pitch_classes=None, humanize=False, tapify=False,
+               add_instruments=None, num_velocity_bins=None,
+               num_offset_bins=None, split_instruments=False, hop_size=None,
+               hits_as_controls=False, fixed_velocities=False,
+               max_note_dropout_probability=None):
 
     self._split_bars = split_bars
     self._steps_per_quarter = steps_per_quarter
@@ -1284,9 +1359,22 @@ class GrooveConverter(BaseNoteSequenceConverter):
     self._hop_size = hop_size
     self._hits_as_controls = hits_as_controls
 
-    self._pitch_classes = pitch_classes or REDUCED_DRUM_PITCH_CLASSES
-    self._pitch_class_map = {
-        p: i for i, pitches in enumerate(self._pitch_classes) for p in pitches}
+    def _classes_to_map(classes):
+      class_map = {}
+      for cls, pitches in enumerate(classes):
+        for pitch in pitches:
+          class_map[pitch] = cls
+      return class_map
+
+    self._pitch_classes = pitch_classes or ROLAND_DRUM_PITCH_CLASSES
+    self._pitch_class_map = _classes_to_map(self._pitch_classes)
+    self._infer_pitch_classes = inference_pitch_classes or self._pitch_classes
+    self._infer_pitch_class_map = _classes_to_map(self._infer_pitch_classes)
+    if len(self._pitch_classes) != len(self._infer_pitch_classes):
+      raise ValueError(
+          'Training and inference must have the same number of pitch classes. '
+          'Got: %d vs %d.' % (
+              len(self._pitch_classes), len(self._infer_pitch_classes)))
     self._num_drums = len(self._pitch_classes)
 
     if bool(num_velocity_bins) ^ bool(num_offset_bins):
@@ -1316,6 +1404,9 @@ class GrooveConverter(BaseNoteSequenceConverter):
     if self._split_instruments:
       control_depth += self._num_drums
 
+    self._max_note_dropout_probability = max_note_dropout_probability
+    self._note_dropout = max_note_dropout_probability is not None
+
     super(GrooveConverter, self).__init__(
         input_depth=output_depth,
         input_dtype=np.float32,
@@ -1326,6 +1417,18 @@ class GrooveConverter(BaseNoteSequenceConverter):
         end_token=False,
         presplit_on_time_changes=False,
         max_tensors_per_notesequence=max_tensors_per_notesequence)
+
+  @property
+  def pitch_classes(self):
+    if self.is_inferring:
+      return self._infer_pitch_classes
+    return self._pitch_classes
+
+  @property
+  def pitch_class_map(self):
+    if self.is_inferring:
+      return self._infer_pitch_class_map
+    return self._pitch_class_map
 
   def _get_feature(self, note, feature, step_length=None):
     """Compute numeric value of hit/velocity/offset for a note.
@@ -1400,7 +1503,7 @@ class GrooveConverter(BaseNoteSequenceConverter):
 
       for note in note_sequence.notes:
         step = int(note.quantized_start_step)
-        drum = self._pitch_class_map[note.pitch]
+        drum = self.pitch_class_map[note.pitch]
         h[step][drum].append(note)
 
       return h
@@ -1442,6 +1545,9 @@ class GrooveConverter(BaseNoteSequenceConverter):
 
     steps_hash = _get_steps_hash(quantized_sequence)
 
+    if not quantized_sequence.notes:
+      return ConverterTensors()
+
     max_start_step = np.max(
         [note.quantized_start_step for note in quantized_sequence.notes])
 
@@ -1477,6 +1583,18 @@ class GrooveConverter(BaseNoteSequenceConverter):
     in_hits = copy.deepcopy(hit_vectors)
     in_velocities = copy.deepcopy(velocity_vectors)
     in_offsets = copy.deepcopy(offset_vectors)
+
+    if self._note_dropout:
+      # Choose a uniform dropout probability for notes per sequence.
+      note_dropout_probability = np.random.uniform(
+          0.0, self._max_note_dropout_probability)
+      # Drop out lower velocity notes with higher probability.
+      velocity_dropout_weights = np.maximum(0.2, (1 - in_velocities))
+      note_dropout_keep_mask = 1 - np.random.binomial(
+          1, velocity_dropout_weights * note_dropout_probability)
+      in_hits *= note_dropout_keep_mask
+      in_velocities *= note_dropout_keep_mask
+      in_offsets *= note_dropout_keep_mask
 
     if self._tapify:
       argmaxes = np.argmax(in_velocities, axis=1)
@@ -1622,7 +1740,7 @@ class GrooveConverter(BaseNoteSequenceConverter):
             note = note_sequence.notes.add()
             note.instrument = 9  # All drums are instrument 9
             note.is_drum = True
-            pitch = self._pitch_classes[j][0]
+            pitch = self.pitch_classes[j][0]
             note.pitch = pitch
             if self._categorical_outputs:
               note.velocity = _one_hot_to_velocity(velocities[j])

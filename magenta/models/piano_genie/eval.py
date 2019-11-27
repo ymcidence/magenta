@@ -1,16 +1,17 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Piano Genie continuous eval script."""
 
 from __future__ import absolute_import
@@ -35,7 +36,8 @@ flags.DEFINE_string("dataset_fp", "./data/valid*.tfrecord",
                     "Path to dataset containing TFRecords of NoteSequences.")
 flags.DEFINE_string("train_dir", "", "The directory for this experiment.")
 flags.DEFINE_string("eval_dir", "", "The directory for evaluation output.")
-flags.DEFINE_string("model_cfg", "stp_iq_auto", "Hyperparameter configuration.")
+flags.DEFINE_string("model_cfg", "piano_genie_paper",
+                    "Hyperparameter configuration.")
 flags.DEFINE_string("model_cfg_overrides", "",
                     "E.g. rnn_nlayers=4,rnn_nunits=256")
 flags.DEFINE_string("ckpt_fp", None,

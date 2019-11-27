@@ -1,25 +1,26 @@
-# Copyright 2018 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Pipeline to create DrumsRNN dataset."""
 
 import magenta
-from magenta.music import encoder_decoder
+from magenta.music.protobuf import music_pb2
 from magenta.pipelines import dag_pipeline
 from magenta.pipelines import drum_pipelines
+from magenta.pipelines import event_sequence_pipeline
 from magenta.pipelines import note_sequence_pipelines
 from magenta.pipelines import pipelines_common
-from magenta.protobuf import music_pb2
 
 
 def get_pipeline(config, eval_ratio):
@@ -45,7 +46,7 @@ def get_pipeline(config, eval_ratio):
         steps_per_quarter=config.steps_per_quarter, name='Quantizer_' + mode)
     drums_extractor = drum_pipelines.DrumsExtractor(
         min_bars=7, max_steps=512, gap_bars=1.0, name='DrumsExtractor_' + mode)
-    encoder_pipeline = encoder_decoder.EncoderPipeline(
+    encoder_pipeline = event_sequence_pipeline.EncoderPipeline(
         magenta.music.DrumTrack, config.encoder_decoder,
         name='EncoderPipeline_' + mode)
 

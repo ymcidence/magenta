@@ -1,22 +1,24 @@
-# Copyright 2018 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tests for Magenta's Tensor2Tensor modalities."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 from magenta.models.score2perf import modalities
 import numpy as np
 from tensor2tensor.layers import common_hparams
@@ -26,7 +28,7 @@ import tensorflow as tf
 
 class ModalitiesTest(tf.test.TestCase):
 
-  def testSymbolTupleModalityInputs(self):
+  def testBottomInputs(self):
     """Adapted from tensor2tensor/layers/modalities_test.py."""
     batch_size = 10
     num_datashards = 5
@@ -41,12 +43,14 @@ class ModalitiesTest(tf.test.TestCase):
             vocab_size[i], size=(batch_size, length, 1))
         for i in range(len(vocab_size))
     ], axis=3)
-    m = modalities.SymbolTupleModality(model_hparams, vocab_size)
     data_parallelism = expert_utils.Parallelism(
         ['/device:CPU:0'] * num_datashards)
+    bottom = functools.partial(modalities.bottom,
+                               model_hparams=model_hparams,
+                               vocab_size=vocab_size)
     with self.test_session() as session:
       xs = tf.split(x, num_datashards)
-      sharded_output = m.bottom_sharded(xs, data_parallelism)
+      sharded_output = data_parallelism(bottom, xs)
       output = tf.concat(sharded_output, 0)
       session.run(tf.global_variables_initializer())
       res = session.run(output)

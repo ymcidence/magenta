@@ -1,16 +1,17 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tests for MusicVAE data library."""
 
 from __future__ import absolute_import
@@ -23,7 +24,7 @@ from magenta.models.music_vae import data
 import magenta.music as mm
 from magenta.music import constants
 from magenta.music import testing_lib
-from magenta.protobuf import music_pb2
+from magenta.music.protobuf import music_pb2
 import numpy as np
 import tensorflow as tf
 
@@ -410,7 +411,7 @@ class OneHotMelodyConverterTest(BaseChordConditionedOneHotDataTest,
   def testIsTraining(self):
     converter = data.OneHotMelodyConverter(
         steps_per_quarter=1, slice_bars=2, max_tensors_per_notesequence=2)
-    self.is_training = True
+    converter.set_mode('train')
     self.assertEqual(2, len(converter.to_tensors(self.sequence).inputs))
 
     converter.max_tensors_per_notesequence = None
@@ -459,12 +460,12 @@ class OneHotDrumsConverterTest(BaseOneHotDataTest, tf.test.TestCase):
         sequence, 0,
         [(35, 100, 0, 10), (44, 55, 1, 2), (40, 45, 4, 5), (35, 45, 9, 10),
          (40, 45, 13, 13), (55, 120, 16, 18), (60, 100, 16, 17),
-         (52, 99, 19, 20)],
+         (53, 99, 19, 20)],
         is_drum=True)
     testing_lib.add_track_to_sequence(
         sequence, 1,
         [(35, 55, 1, 2), (40, 45, 25, 26), (55, 120, 28, 30), (60, 100, 28, 29),
-         (52, 99, 31, 33)],
+         (53, 99, 31, 33)],
         is_drum=True)
     self.sequence = sequence
 
@@ -507,7 +508,7 @@ class OneHotDrumsConverterTest(BaseOneHotDataTest, tf.test.TestCase):
   def testIsTraining(self):
     converter = data.DrumsConverter(
         steps_per_quarter=1, slice_bars=1, max_tensors_per_notesequence=2)
-    self.is_training = True
+    converter.set_mode('train')
     self.assertEqual(2, len(converter.to_tensors(self.sequence).inputs))
 
     converter.max_tensors_per_notesequence = None
@@ -571,9 +572,9 @@ class RollOutputsDrumsConverterTest(BaseDataTest, tf.test.TestCase):
          (40, 45, 4, 5),
          (35, 45, 9, 10),
          (40, 45, 13, 13),
-         (55, 120, 16, 18), (60, 100, 16, 17), (52, 99, 19, 20),
+         (55, 120, 16, 18), (60, 100, 16, 17), (53, 99, 19, 20),
          (40, 45, 33, 34), (55, 120, 36, 37), (60, 100, 36, 37),
-         (52, 99, 39, 42)],
+         (53, 99, 39, 42)],
         is_drum=True)
     testing_lib.add_track_to_sequence(
         sequence, 1,
@@ -858,7 +859,6 @@ class GrooveConverterTest(tf.test.TestCase):
 
   def setUp(self):
     self.one_bar_sequence = self.initialize_sequence()
-    self.one_bar_sequence.sequence_metadata.genre.extend(['Rock'])
     self.two_bar_sequence = self.initialize_sequence()
     self.tap_sequence = self.initialize_sequence()
     self.quantized_sequence = self.initialize_sequence()
@@ -1114,6 +1114,30 @@ class GrooveConverterTest(tf.test.TestCase):
 
     self.compare_notes(tap_notes, input_sequences[0].notes)
 
+  def testTapWithNoteDropout(self):
+    tap_converter = data.GrooveConverter(
+        split_bars=None, steps_per_quarter=4, quarters_per_bar=4,
+        max_tensors_per_notesequence=5, tapify=True, fixed_velocities=True)
+
+    dropout_converter = data.GrooveConverter(
+        split_bars=None, steps_per_quarter=4, quarters_per_bar=4,
+        max_tensors_per_notesequence=5, tapify=True, fixed_velocities=True,
+        max_note_dropout_probability=0.8)
+
+    tap_tensors = tap_converter.to_tensors(self.one_bar_sequence)
+    tap_input_sequences = tap_converter.to_items(tap_tensors.inputs)
+
+    dropout_tensors = dropout_converter.to_tensors(self.one_bar_sequence)
+    dropout_input_sequences = dropout_converter.to_items(dropout_tensors.inputs)
+    output_sequences = dropout_converter.to_items(dropout_tensors.outputs)
+
+    # Output sequence should match the initial input.
+    self.compare_seqs(self.one_bar_sequence, output_sequences[0])
+
+    # Input sequence should have <= the number of notes as regular tap.
+    self.assertEqual(len(tap_input_sequences[0].notes), max(len(
+        tap_input_sequences[0].notes), len(dropout_input_sequences[0].notes)))
+
   def testHumanize(self):
     converter = data.GrooveConverter(
         split_bars=None, steps_per_quarter=4, quarters_per_bar=4,
@@ -1292,6 +1316,56 @@ class GrooveConverterTest(tf.test.TestCase):
     self.assertEqual(1, len(sequences))
 
     self.compare_seqs(self.one_bar_sequence, sequences[0])
+
+  def testModeMappings(self):
+    default_pitches = [
+        [0, 1],
+        [2, 3],
+    ]
+    inference_pitches = [
+        [1, 2],
+        [3, 0],
+    ]
+    converter = data.GrooveConverter(
+        split_bars=None, steps_per_quarter=4, quarters_per_bar=4,
+        max_tensors_per_notesequence=5, pitch_classes=default_pitches,
+        inference_pitch_classes=inference_pitches)
+
+    test_seq = self.initialize_sequence()
+    testing_lib.add_track_to_sequence(
+        test_seq,
+        9,
+        [
+            (0, 50, 0, 0),
+            (1, 60, 0.25, 0.25),
+            (2, 70, 0.5, 0.5),
+            (3, 80, 0.75, 0.75),
+        ])
+
+    # Test in default mode.
+    default_tensors = converter.to_tensors(test_seq)
+    default_sequences = converter.to_items(default_tensors.outputs)
+    expected_default_sequence = music_pb2.NoteSequence()
+    expected_default_sequence.CopyFrom(test_seq)
+    expected_default_sequence.notes[1].pitch = 0
+    expected_default_sequence.notes[3].pitch = 2
+    self.compare_seqs(expected_default_sequence, default_sequences[0])
+
+    # Test in train mode.
+    converter.set_mode('train')
+    train_tensors = converter.to_tensors(test_seq)
+    train_sequences = converter.to_items(train_tensors.outputs)
+    self.compare_seqs(expected_default_sequence, train_sequences[0])
+
+    # Test in inference mode.
+    converter.set_mode('infer')
+    infer_tensors = converter.to_tensors(test_seq)
+    infer_sequences = converter.to_items(infer_tensors.outputs)
+    expected_infer_sequence = music_pb2.NoteSequence()
+    expected_infer_sequence.CopyFrom(test_seq)
+    expected_infer_sequence.notes[0].pitch = 3
+    expected_infer_sequence.notes[2].pitch = 1
+    self.compare_seqs(expected_infer_sequence, infer_sequences[0])
 
 
 if __name__ == '__main__':

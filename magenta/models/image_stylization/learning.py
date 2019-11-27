@@ -1,16 +1,17 @@
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Learning-related functions for style transfer."""
 
 from __future__ import absolute_import
@@ -20,8 +21,9 @@ from __future__ import print_function
 from magenta.models.image_stylization import vgg
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib import slim as contrib_slim
 
-slim = tf.contrib.slim
+slim = contrib_slim
 
 
 def precompute_gram_matrices(image, final_endpoint='fc8'):
@@ -106,13 +108,13 @@ def content_loss(end_points, stylized_end_points, content_weights):
   total_content_loss = np.float32(0.0)
   content_loss_dict = {}
 
-  for name, weight in content_weights.iteritems():
+  for name in content_weights:
     # Reducing over all but the batch axis before multiplying with the content
     # weights allows to use multiple sets of content weights in a single batch.
     loss = tf.reduce_mean(
         (end_points[name] - stylized_end_points[name]) ** 2,
         [1, 2, 3])
-    weighted_loss = tf.reduce_mean(weight * loss)
+    weighted_loss = tf.reduce_mean(content_weights[name] * loss)
     loss = tf.reduce_mean(loss)
 
     content_loss_dict['content_loss/' + name] = loss
@@ -142,12 +144,12 @@ def style_loss(style_gram_matrices, end_points, style_weights):
   total_style_loss = np.float32(0.0)
   style_loss_dict = {}
 
-  for name, weight in style_weights.iteritems():
+  for name in style_weights:
     # Reducing over all but the batch axis before multiplying with the style
     # weights allows to use multiple sets of style weights in a single batch.
     loss = tf.reduce_mean(
         (gram_matrix(end_points[name]) - style_gram_matrices[name])**2, [1, 2])
-    weighted_style_loss = tf.reduce_mean(weight * loss)
+    weighted_style_loss = tf.reduce_mean(style_weights[name] * loss)
     loss = tf.reduce_mean(loss)
 
     style_loss_dict['style_loss/' + name] = loss

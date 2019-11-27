@@ -1,18 +1,17 @@
-# pylint: skip-file
-# TODO(iansimon): Enable when Apache Beam supports Python 3.
-# Copyright 2018 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Tests for Score2Perf datagen using beam."""
 
 from __future__ import absolute_import
@@ -25,7 +24,7 @@ import apache_beam as beam
 from magenta.models.score2perf import datagen_beam
 from magenta.models.score2perf import music_encoders
 from magenta.music import testing_lib
-from magenta.protobuf import music_pb2
+from magenta.music.protobuf import music_pb2
 import tensorflow as tf
 
 

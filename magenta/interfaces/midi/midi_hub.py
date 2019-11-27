@@ -1,3 +1,17 @@
+# Copyright 2019 The Magenta Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """A module for interfacing with the MIDI environment."""
 
 # TODO(adarob): Use flattened imports.
@@ -9,7 +23,7 @@ import threading
 import time
 
 from magenta.common import concurrency
-from magenta.protobuf import music_pb2
+from magenta.music.protobuf import music_pb2
 import mido
 from six.moves import queue as Queue
 import tensorflow as tf
@@ -887,6 +901,7 @@ class MidiHub(object):
 
     # Open MIDI ports.
 
+    inports = []
     if input_midi_ports:
       for port in input_midi_ports:
         if isinstance(port, mido.ports.BaseInput):
@@ -899,13 +914,16 @@ class MidiHub(object):
           inport = mido.open_input(port, virtual=virtual)
         # Start processing incoming messages.
         inport.callback = self._timestamp_and_handle_message
+        inports.append(inport)
+      # Keep references to input ports to prevent deletion.
+      self._inports = inports
     else:
       tf.logging.warn('No input port specified. Capture disabled.')
-      self._inport = None
+      self._inports = None
 
     outports = []
     for port in output_midi_ports:
-      if isinstance(port, mido.ports.BaseInput):
+      if isinstance(port, mido.ports.BaseOutput):
         outports.append(port)
       else:
         virtual = port not in get_available_output_ports()

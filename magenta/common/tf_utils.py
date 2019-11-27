@@ -1,10 +1,10 @@
-# Copyright 2017 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,25 +15,26 @@
 """Tensorflow-related utilities."""
 
 import tensorflow as tf
+from tensorflow.contrib import training as contrib_training
 
 
 def merge_hparams(hparams_1, hparams_2):
-  """Merge hyperparameters from two tf.HParams objects.
+  """Merge hyperparameters from two tf.contrib.training.HParams objects.
 
   If the same key is present in both HParams objects, the value from `hparams_2`
   will be used.
 
   Args:
-    hparams_1: The first tf.HParams object to merge.
-    hparams_2: The second tf.HParams object to merge.
+    hparams_1: The first tf.contrib.training.HParams object to merge.
+    hparams_2: The second tf.contrib.training.HParams object to merge.
 
   Returns:
-    A merged tf.HParams object with the hyperparameters from both `hparams_1`
-    and `hparams_2`.
+    A merged tf.contrib.training.HParams object with the hyperparameters from
+    both `hparams_1` and `hparams_2`.
   """
   hparams_map = hparams_1.values()
   hparams_map.update(hparams_2.values())
-  return tf.contrib.training.HParams(**hparams_map)
+  return contrib_training.HParams(**hparams_map)
 
 
 def log_loss(labels, predictions, epsilon=1e-7, scope=None, weights=None):

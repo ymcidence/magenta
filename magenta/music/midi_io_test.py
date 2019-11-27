@@ -1,16 +1,17 @@
-# Copyright 2016 Google Inc. All Rights Reserved.
+# Copyright 2019 The Magenta Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Test to ensure correct midi input and output."""
 
 from __future__ import absolute_import
@@ -23,7 +24,7 @@ import tempfile
 
 from magenta.music import constants
 from magenta.music import midi_io
-from magenta.protobuf import music_pb2
+from magenta.music.protobuf import music_pb2
 import mido
 import pretty_midi
 import tensorflow as tf
@@ -59,16 +60,16 @@ class MidiIoTest(tf.test.TestCase):
 
   def setUp(self):
     self.midi_simple_filename = os.path.join(
-        tf.resource_loader.get_data_files_path(), '../testdata/example.mid')
+        tf.resource_loader.get_data_files_path(), 'testdata/example.mid')
     self.midi_complex_filename = os.path.join(
         tf.resource_loader.get_data_files_path(),
-        '../testdata/example_complex.mid')
+        'testdata/example_complex.mid')
     self.midi_is_drum_filename = os.path.join(
         tf.resource_loader.get_data_files_path(),
-        '../testdata/example_is_drum.mid')
+        'testdata/example_is_drum.mid')
     self.midi_event_order_filename = os.path.join(
         tf.resource_loader.get_data_files_path(),
-        '../testdata/example_event_order.mid')
+        'testdata/example_event_order.mid')
 
   def CheckPrettyMidiAndSequence(self, midi, sequence_proto):
     """Compares PrettyMIDI object against a sequence proto.
@@ -342,6 +343,29 @@ class MidiIoTest(tf.test.TestCase):
             event.velocity > 0 and event.channel == 9):
           channel_counts[index] += 1
     self.assertEqual(channel_counts, [2, 2])
+
+  def testInstrumentInfo_NoteSequenceToPrettyMidi(self):
+    source_sequence = music_pb2.NoteSequence()
+    source_sequence.notes.add(
+        pitch=60, start_time=0.0, end_time=0.5, velocity=80, instrument=0)
+    source_sequence.notes.add(
+        pitch=60, start_time=0.5, end_time=1.0, velocity=80, instrument=1)
+    instrument_info1 = source_sequence.instrument_infos.add()
+    instrument_info1.name = 'inst_0'
+    instrument_info1.instrument = 0
+    instrument_info2 = source_sequence.instrument_infos.add()
+    instrument_info2.name = 'inst_1'
+    instrument_info2.instrument = 1
+    translated_midi = midi_io.sequence_proto_to_pretty_midi(source_sequence)
+    translated_sequence = midi_io.midi_to_note_sequence(translated_midi)
+
+    self.assertEqual(
+        len(source_sequence.instrument_infos),
+        len(translated_sequence.instrument_infos))
+    self.assertEqual(source_sequence.instrument_infos[0].name,
+                     translated_sequence.instrument_infos[0].name)
+    self.assertEqual(source_sequence.instrument_infos[1].name,
+                     translated_sequence.instrument_infos[1].name)
 
   def testComplexReadWriteMidi(self):
     self.CheckReadWriteMidi(self.midi_complex_filename)
